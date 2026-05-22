@@ -6,18 +6,34 @@ h_path = r"Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/cap
 
 print("Starting verification and patching process...")
 
+# 1. Update resource.h using a dynamic line parser to bypass whitespace layout bugs
 if os.path.exists(h_path):
     with open(h_path, "r", encoding="utf-8", errors="ignore") as f:
-        h_content = f.read()
-    if "ID_VIEW_FULLSCREEN" not in h_content:
-        h_content = h_content.replace("#define IDM_ABOUT", "#define ID_VIEW_FULLSCREEN 40009\n#define IDM_ABOUT")
+        lines = f.readlines()
+        
+    has_fullscreen = any("ID_VIEW_FULLSCREEN" in line for line in lines)
+    
+    if not has_fullscreen:
+        updated_lines = []
+        patched = False
+        for line in lines:
+            # Look for IDM_ABOUT regardless of spaces or tabs
+            if "IDM_ABOUT" in line and not patched:
+                updated_lines.append("#define ID_VIEW_FULLSCREEN             40009\n")
+                patched = True
+            updated_lines.append(line)
+            
         with open(h_path, "w", encoding="utf-8") as f:
-            f.write(h_content)
-        print("[SUCCESS] resource.h updated.")
+            f.writelines(updated_lines)
+        print("[SUCCESS] resource.h dynamically patched with ID_VIEW_FULLSCREEN.")
+else:
+    print("[ERROR] resource.h could not be found.")
 
+# 2. Patch amcap.rc to add the Full Screen option to the menu and accelerators
 if os.path.exists(rc_path):
     with open(rc_path, "r", encoding="utf-8", errors="ignore") as f:
         rc_content = f.read()
+    
     if "ID_VIEW_FULLSCREEN" not in rc_content:
         menu_search = 'POPUP "&Help"'
         menu_inject = """POPUP "&View"
@@ -26,19 +42,23 @@ if os.path.exists(rc_path):
     END
     """
         rc_content = rc_content.replace(menu_search, menu_inject + menu_search)
+        
         accel_search = 'VK_F5,          IDM_START_CAPTURE,  VIRTKEY'
         accel_inject = '\n    VK_RETURN,      ID_VIEW_FULLSCREEN, VIRTKEY'
         rc_content = rc_content.replace(accel_search, accel_search + accel_inject)
+        
         with open(rc_path, "w", encoding="utf-8") as f:
             f.write(rc_content)
-        print("[SUCCESS] amcap.rc patched.")
+        print("[SUCCESS] amcap.rc menu structure and accelerators patched successfully.")
 
+# 3. Patch amcap.cpp to include runtime fullscreen mechanics and event loops
 if os.path.exists(cpp_path):
     with open(cpp_path, "r", encoding="utf-8", errors="ignore") as f:
         code = f.read()
 
     if "ToggleFullScreen" not in code:
         globals_code = """
+// --- Custom KVM Borderless Fullscreen Engine Implementation ---
 bool            g_bFullScreen = false;
 WINDOWPLACEMENT g_wpPrev = { sizeof(WINDOWPLACEMENT) };
 HMENU           g_hMainMenu = NULL;
@@ -73,6 +93,7 @@ void ToggleFullScreen(HWND hwnd)
 }
 """
         code = code.replace("#include <streams.h>", "#include <streams.h>\n" + globals_code)
+
         input_hooks = """    switch (message)
     {
         case WM_LBUTTONDBLCLK:
@@ -85,14 +106,14 @@ void ToggleFullScreen(HWND hwnd)
             }
             break;"""
         code = code.replace("    switch (message)\n    {", input_hooks)
+
         command_hook = """case ID_VIEW_FULLSCREEN:
             ToggleFullScreen(hwnd);
             break;"""
         code = code.replace("switch (g_bvbiPreview)", command_hook + "\n        switch (g_bvbiPreview)")
+
         code = code.replace("wc.style = 0;", "wc.style = CS_DBLCLKS;")
 
         with open(cpp_path, "w", encoding="utf-8") as f:
             f.write(code)
-        print("[SUCCESS] amcap.cpp patched.")
-else:
-    print("[ERROR] Microsoft components not found.")
+        print("[SUCCESS] amcap.cpp engine logic updated.")
