@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Your Repository Variables
+    - name: Checkout Your Repository
       uses: actions/checkout@v4
 
     - name: Fast Sparse Clone Microsoft Samples
@@ -21,7 +21,7 @@ jobs:
         git sparse-checkout set Samples/Win7Samples/multimedia/directshow
       shell: cmd
 
-    - name: Setup MSVC Compiler Environment
+    - name: Setup MSVC & MSBuild Environment
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
@@ -29,16 +29,9 @@ jobs:
     - name: Pre-Compile BaseClasses Dependency Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        :: Try building with explicit reference to uppercase Makefile
-        if exist Makefile (
-            nmake /f Makefile
-        ) else if exist makefile (
-            nmake /f makefile
-        ) else (
-            echo "No Makefile found, compiling raw source directly..."
-            cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE *.cpp
-            lib /nologo /OUT:STRMBASE.lib *.obj
-        )
+        :: Fallback raw compilation guarantees STRMBASE.lib is generated quickly
+        cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE *.cpp
+        lib /nologo /OUT:STRMBASE.lib *.obj
       shell: cmd
 
     - name: Execute Full Verification and Python Patching
@@ -46,26 +39,20 @@ jobs:
         python patch_amcap.py
       shell: cmd
 
-    - name: Compile Official AMCap Executable with All Configurations
+    - name: Compile Official AMCap via MSBuild Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
         
+        :: Set up compiler environment arrays explicitly for the build context
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses\Release_x64
         
-        :: Handle uppercase/lowercase naming variant for amcap folder as well
-        if exist Makefile (
-            nmake /f Makefile
-        ) else (
-            nmake /f makefile
-        )
+        :: Run explicit CLI compilation directly targeting native Windows modules
+        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.rc /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
     - name: Upload Complete Patched Production Binary
       uses: actions/upload-artifact@v4
       with:
         name: native-patched-amcap-engine
-        path: |
-          Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/Release_x64/amcap.exe
-          Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/amcap.exe
+        path: Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/amcap.exe
