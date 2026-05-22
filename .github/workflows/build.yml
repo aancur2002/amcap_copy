@@ -47,8 +47,8 @@ jobs:
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         
-        :: FIX: Added /I. so rc.exe can find our newly updated resource.h sitting in the current directory
-        rc /fo amcap.res /d UNICODE /d _UNICODE /I. /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
+        :: Compile resource file targeting the explicit patched workspace pathing directly
+        rc /fo amcap.res /d UNICODE /d _UNICODE /I. /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap" amcap.rc
         
         :: Compile and link everything together cleanly into a standalone executable
         cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
