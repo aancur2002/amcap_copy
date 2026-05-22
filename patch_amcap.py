@@ -22,7 +22,6 @@ if os.path.exists(rc_path):
         rc_content = f.read()
     
     if "ID_VIEW_FULLSCREEN" not in rc_content:
-        # Inject custom menu bar entry right before the Help/About pop-up menu block
         menu_search = 'POPUP "&Help"'
         menu_inject = """POPUP "&View"
     BEGIN
@@ -31,7 +30,6 @@ if os.path.exists(rc_path):
     """
         rc_content = rc_content.replace(menu_search, menu_inject + menu_search)
         
-        # Inject the keyboard shortcuts accelerator entry (VK_RETURN / Enter toggles fullscreen)
         accel_search = 'VK_F5,          IDM_START_CAPTURE,  VIRTKEY'
         accel_inject = '\n    VK_RETURN,      ID_VIEW_FULLSCREEN, VIRTKEY'
         rc_content = rc_content.replace(accel_search, accel_search + accel_inject)
@@ -46,7 +44,6 @@ if os.path.exists(cpp_path):
         code = f.read()
 
     if "ToggleFullScreen" not in code:
-        # Inject necessary globals and window framing mechanics directly under the header blocks
         globals_code = """
 // --- Custom KVM Borderless Fullscreen Engine Implementation ---
 bool            g_bFullScreen = false;
@@ -84,7 +81,6 @@ void ToggleFullScreen(HWND hwnd)
 """
         code = code.replace("#include <streams.h>", "#include <streams.h>\n" + globals_code)
 
-        # Inject mouse double-click and Escape key intercepts inside their native WndProc routing block
         input_hooks = """    switch (message)
     {
         case WM_LBUTTONDBLCLK:
@@ -98,13 +94,11 @@ void ToggleFullScreen(HWND hwnd)
             break;"""
         code = code.replace("    switch (message)\n    {", input_hooks)
 
-        # Handle menu click execution for ID_VIEW_FULLSCREEN selection
         command_hook = """case ID_VIEW_FULLSCREEN:
             ToggleFullScreen(hwnd);
             break;"""
         code = code.replace("switch (g_bvbiPreview)", command_hook + "\n        switch (g_bvbiPreview)")
 
-        # Configure their window class specification to recognize fast double-clicks
         code = code.replace("wc.style = 0;", "wc.style = CS_DBLCLKS;")
 
         with open(cpp_path, "w", encoding="utf-8") as f:
