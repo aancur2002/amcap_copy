@@ -29,8 +29,9 @@ jobs:
     - name: Pre-Compile BaseClasses Dependency Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        :: Fallback raw compilation guarantees STRMBASE.lib is generated quickly
-        cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE *.cpp
+        
+        :: Include the current directory (.) so the engine can find its own streams.h header file
+        cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE /I. *.cpp
         lib /nologo /OUT:STRMBASE.lib *.obj
       shell: cmd
 
@@ -43,12 +44,16 @@ jobs:
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
         
-        :: Set up compiler environment arrays explicitly for the build context
+        :: Map dependencies including the baseclasses library, local workspace headers, and the missing shared common utilities folder
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         
-        :: Run explicit CLI compilation directly targeting native Windows modules
-        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.rc /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
+        :: 1. Compile resource file accurately using the native Windows Resource Compiler
+        rc /fomated.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
+        
+        :: 2. Compile and link all official companion files (status, crossbar, SampleCGB) along with your patched layout
+        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
     - name: Upload Complete Patched Production Binary
