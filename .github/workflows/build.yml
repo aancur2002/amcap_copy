@@ -21,6 +21,12 @@ jobs:
         git sparse-checkout set Samples/Win7Samples/multimedia/directshow
       shell: cmd
 
+    # CRITICAL FIX: Run the Python patch first so resource.h and amcap.rc have the fullscreen definitions ready
+    - name: Execute Full Verification and Python Patching
+      run: |
+        python patch_amcap.py
+      shell: cmd
+
     - name: Setup MSVC & MSBuild Environment
       uses: ilammy/msvc-dev-cmd@v1
       with:
@@ -29,15 +35,8 @@ jobs:
     - name: Pre-Compile BaseClasses Dependency Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        
-        :: Include the current directory (.) so the engine can find its own streams.h header file
         cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE /I. *.cpp
         lib /nologo /OUT:STRMBASE.lib *.obj
-      shell: cmd
-
-    - name: Execute Full Verification and Python Patching
-      run: |
-        python patch_amcap.py
       shell: cmd
 
     - name: Compile Official AMCap via MSBuild Engine
@@ -49,10 +48,10 @@ jobs:
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         
-        :: 1. Compile resource file accurately using the native Windows Resource Compiler
-        rc /fomated.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
+        :: 1. Compile resource file with correct include paths matching updated headers
+        rc /fo amcap.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
         
-        :: 2. Compile and link all official companion files (status, crossbar, SampleCGB) along with your patched layout
+        :: 2. Compile and link everything together cleanly into a standalone executable
         cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
