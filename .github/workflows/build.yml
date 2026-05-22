@@ -14,9 +14,12 @@ jobs:
     - name: Checkout Your Repository Variables
       uses: actions/checkout@v4
 
-    - name: Clone Authentic Microsoft Samples Repository
+    # Speed Boost: Only clone the specific multimedia directories from Microsoft
+    - name: Fast Sparse Clone Microsoft Samples
       run: |
-        git clone --depth 1 https://github.com/microsoft/Windows-classic-samples.git
+        git clone --depth 1 --filter=blob:none --sparse https://github.com/microsoft/Windows-classic-samples.git
+        cd Windows-classic-samples
+        git sparse-checkout set Samples/Win7Samples/multimedia/directshow
       shell: cmd
 
     - name: Setup MSVC Compiler Environment
@@ -39,7 +42,6 @@ jobs:
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
         
-        :: Dynamically map paths relative to the current workspace to prevent folder-name mismatches
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses\Release_x64
         
