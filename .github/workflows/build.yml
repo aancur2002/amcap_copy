@@ -39,9 +39,9 @@ jobs:
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
         
-        :: Set up include paths to reference the BaseClasses we compiled
-        set INCLUDE=%INCLUDE%;D:\a\amcap-fullscreen\amcap-fullscreen\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        set LIB=%LIB%;D:\a\amcap-fullscreen\amcap-fullscreen\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses\Release_x64
+        :: Dynamically map paths relative to the current workspace to prevent folder-name mismatches
+        set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses\Release_x64
         
         nmake /f makefile
       shell: cmd
