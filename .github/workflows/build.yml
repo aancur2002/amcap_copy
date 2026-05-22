@@ -14,11 +14,13 @@ jobs:
     - name: Checkout Your Repository
       uses: actions/checkout@v4
 
+    # FIX: Configured sparse-checkout to recursively pull all headers (*), matching everything in the path
     - name: Fast Sparse Clone Microsoft Samples
       run: |
         git clone --depth 1 --filter=blob:none --sparse https://github.com/microsoft/Windows-classic-samples.git
         cd Windows-classic-samples
-        git sparse-checkout set Samples/Win7Samples/multimedia/directshow
+        git sparse-checkout init --cone
+        git sparse-checkout set Samples/Win7Samples/multimedia/directshow/baseclasses Samples/Win7Samples/multimedia/directshow/common Samples/Win7Samples/multimedia/directshow/capture/amcap
       shell: cmd
 
     - name: Execute Full Verification and Python Patching
