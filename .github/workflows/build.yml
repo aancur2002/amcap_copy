@@ -14,7 +14,6 @@ jobs:
     - name: Checkout Your Repository Variables
       uses: actions/checkout@v4
 
-    # Speed Boost: Only clone the specific multimedia directories from Microsoft
     - name: Fast Sparse Clone Microsoft Samples
       run: |
         git clone --depth 1 --filter=blob:none --sparse https://github.com/microsoft/Windows-classic-samples.git
@@ -30,7 +29,16 @@ jobs:
     - name: Pre-Compile BaseClasses Dependency Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        nmake /f makefile
+        :: Try building with explicit reference to uppercase Makefile
+        if exist Makefile (
+            nmake /f Makefile
+        ) else if exist makefile (
+            nmake /f makefile
+        ) else (
+            echo "No Makefile found, compiling raw source directly..."
+            cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE *.cpp
+            lib /nologo /OUT:STRMBASE.lib *.obj
+        )
       shell: cmd
 
     - name: Execute Full Verification and Python Patching
@@ -43,13 +51,21 @@ jobs:
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
         
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses\Release_x64
         
-        nmake /f makefile
+        :: Handle uppercase/lowercase naming variant for amcap folder as well
+        if exist Makefile (
+            nmake /f Makefile
+        ) else (
+            nmake /f makefile
+        )
       shell: cmd
 
     - name: Upload Complete Patched Production Binary
       uses: actions/upload-artifact@v4
       with:
         name: native-patched-amcap-engine
-        path: Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/Release_x64/amcap.exe
+        path: |
+          Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/Release_x64/amcap.exe
+          Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/amcap.exe
