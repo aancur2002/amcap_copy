@@ -1,5 +1,6 @@
 import os
 
+# FIXED PATHS: Added the repository folder prefix explicitly
 cpp_path = r"Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/amcap.cpp"
 rc_path = r"Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/amcap.rc"
 h_path = r"Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/resource.h"
@@ -17,7 +18,6 @@ if os.path.exists(h_path):
         updated_lines = []
         patched = False
         for line in lines:
-            # Look for IDM_ABOUT regardless of spaces or tabs
             if "IDM_ABOUT" in line and not patched:
                 updated_lines.append("#define ID_VIEW_FULLSCREEN             40009\n")
                 patched = True
@@ -27,7 +27,7 @@ if os.path.exists(h_path):
             f.writelines(updated_lines)
         print("[SUCCESS] resource.h dynamically patched with ID_VIEW_FULLSCREEN.")
 else:
-    print("[ERROR] resource.h could not be found.")
+    print(f"[ERROR] resource.h could not be found at path: {h_path}")
 
 # 2. Patch amcap.rc to add the Full Screen option to the menu and accelerators
 if os.path.exists(rc_path):
@@ -50,6 +50,8 @@ if os.path.exists(rc_path):
         with open(rc_path, "w", encoding="utf-8") as f:
             f.write(rc_content)
         print("[SUCCESS] amcap.rc menu structure and accelerators patched successfully.")
+else:
+    print(f"[ERROR] amcap.rc could not be found at path: {rc_path}")
 
 # 3. Patch amcap.cpp to include runtime fullscreen mechanics and event loops
 if os.path.exists(cpp_path):
@@ -117,3 +119,5 @@ void ToggleFullScreen(HWND hwnd)
         with open(cpp_path, "w", encoding="utf-8") as f:
             f.write(code)
         print("[SUCCESS] amcap.cpp engine logic updated.")
+else:
+    print(f"[ERROR] amcap.cpp could not be found at path: {cpp_path}")
