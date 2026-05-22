@@ -60,3 +60,17 @@ jobs:
       with:
         name: native-patched-amcap-engine
         path: Windows-classic-samples/Samples/Win7Samples/multimedia/directshow/capture/amcap/amcap.exe
+
+    - name: Verify Patch and Compile
+      run: |
+        cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
+        
+        :: Verify the header was actually updated before trying to compile
+        findstr "ID_VIEW_FULLSCREEN" resource.h || (echo "ERROR: resource.h not patched!" && exit 1)
+        
+        :: Compile resource
+        rc /fo amcap.res /d UNICODE /d _UNICODE /I. /I"..\..\baseclasses" /I"." amcap.rc
+        
+        :: Compile and link
+        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
+      shell: cmd
