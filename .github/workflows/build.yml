@@ -29,8 +29,8 @@ jobs:
     - name: Compile DirectShow BaseClasses Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        :: Enforcing /D_DEBUG so that class constructors retain string arguments uniformly
-        cl /nologo /O2 /c /D_AMD64_ /D_WIN32 /DUNICODE /D_UNICODE /D_DEBUG /EHsc /Zc:wchar_t /I. *.cpp
+        :: Added /DDEBUG explicitly alongside /D_DEBUG to activate functions inside wxdebug.cpp
+        cl /nologo /O2 /c /D_AMD64_ /D_WIN32 /DUNICODE /D_UNICODE /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t /I. *.cpp
         lib /nologo /OUT:STRMBASE.lib *.obj
       shell: cmd
 
@@ -45,8 +45,8 @@ jobs:
         rc /fo amcap.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
         
         :: 2. Compile your modified C++ source code into the final executable
-        :: Added /D_DEBUG here to align signatures seamlessly
-        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /EHsc /Zc:wchar_t amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
+        :: Match identical macro pairs (/D_DEBUG /DDEBUG) to resolve all 3 unresolved externals
+        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
     - name: Upload Production Binary
