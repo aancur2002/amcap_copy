@@ -36,6 +36,7 @@ BEGIN
     POPUP "&Options"
         BEGIN
             MENUITEM "&Preview"             , MENU_PREVIEW
+            MENUITEM "&Full Screen\tEnter"  , MENU_FULLSCREEN
         MENUITEM SEPARATOR
             MENUITEM "&MPEG2"               , MENU_MPEG2
             MENUITEM SEPARATOR
@@ -78,7 +79,7 @@ BEGIN
     CTEXT           "AMCAP - DirectShow Video Capture Sample",-1,23,
                     8,170,8,NOT WS_GROUP
     CTEXT           "Version 9.01",-1,41,23,134,8,NOT WS_GROUP
-    CTEXT           "Copyright ©  Microsoft Corp.",-1,23,
+    CTEXT           "Copyright Â©  Microsoft Corp.",-1,23,
                     38,170,8,NOT WS_GROUP
     DEFPUSHBUTTON   "OK",IDOK,91,53,32,14,WS_GROUP
     ICON            "AMCAPICON"-1,7,17,21,20
