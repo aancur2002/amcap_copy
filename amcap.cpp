@@ -760,28 +760,27 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             ToggleFullScreen(hwnd);
             return 0;
 
-        case WM_KEYDOWN:
-            // KVM Escape / Enter Logic
-            if (wParam == VK_ESCAPE && g_bFullScreen) {
-                ToggleFullScreen(hwnd);
-                return 0;
-            }
-            if (wParam == 'S' && (GetKeyState(VK_MENU) & 0x8000)) {
-                ToggleFullScreen(hwnd);
-                return 0;
-            }
-            
-            // Original ESC will stop capture
-            if((GetAsyncKeyState(VK_ESCAPE) & 0x01) && gcap.fCapturing)
-            {
-                StopCapture();
-                if(gcap.fWantPreview)
-                {
-                    BuildPreviewGraph();
-                    StartPreview();
-                }
-            }
-            break;
+        case WM_SYSKEYDOWN:   // Alt+key combinations come here, NOT WM_KEYDOWN
+		case WM_KEYDOWN:
+		    if (wParam == VK_ESCAPE && g_bFullScreen) {
+		        ToggleFullScreen(hwnd);
+		        return 0;
+		    }
+		    if (wParam == 'S' && (GetKeyState(VK_MENU) & 0x8000)) {
+		        ToggleFullScreen(hwnd);
+		        return 0;
+		    }
+		    // Original ESC stop capture logic
+		    if((GetAsyncKeyState(VK_ESCAPE) & 0x01) && gcap.fCapturing)
+		    {
+		        StopCapture();
+		        if(gcap.fWantPreview)
+		        {
+		            BuildPreviewGraph();
+		            StartPreview();
+		        }
+		    }
+		    break;
 
         case WM_PAINT:
             hdc = BeginPaint(hwnd,&ps);
