@@ -1,5 +1,4 @@
 name: Compile Custom AMCap KVM Client
-
 on:
   push:
     branches: [ main, master ]
@@ -9,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
     - name: Checkout Custom AMCap Repository
       uses: actions/checkout@v4
@@ -28,25 +26,34 @@ jobs:
 
     - name: Compile DirectShow BaseClasses Engine
       run: |
-        cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        :: We MUST define DEBUG to export symbols, and _DEBUG for CRT compatibility
+        pushd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         cl /nologo /O2 /c /D_AMD64_ /D_WIN32 /DUNICODE /D_UNICODE /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t /I. *.cpp
         lib /nologo /OUT:STRMBASE.lib *.obj
+        echo STRMBASE.lib built at:
+        cd
       shell: cmd
 
     - name: Compile Custom AMCap Executable
       run: |
-        :: Setup paths
-        set BASE_PATH=${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        set INCLUDE=%INCLUDE%;%BASE_PATH%
-        set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
+        set BASE_PATH=%GITHUB_WORKSPACE%\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set COMMON_PATH=%GITHUB_WORKSPACE%\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
+        set INCLUDE=%INCLUDE%;%BASE_PATH%;%COMMON_PATH%
         set LIB=%LIB%;%BASE_PATH%
-        
-        :: 1. Compile resource
+
+        echo === DEBUG ===
+        echo BASE_PATH=%BASE_PATH%
+        echo LIB=%LIB%
+        dir "%BASE_PATH%\STRMBASE.lib"
+        echo =============
+
         rc /fo amcap.res /d UNICODE /d _UNICODE /I"%BASE_PATH%" amcap.rc
-        
-        :: 2. Compile and Link: Using identical flags to the baseclasses compilation above
-        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
+
+        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t ^
+          amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res ^
+          /link "%BASE_PATH%\STRMBASE.lib" ^
+          user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib ^
+          vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib ^
+          /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
     - name: Upload Production Binary
