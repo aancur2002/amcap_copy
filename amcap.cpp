@@ -306,7 +306,7 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
         *  Register a class for the main application window
         */
         cls.hCursor        = LoadCursor(NULL,IDC_ARROW);
-        cls.hIcon          = NULL;
+        cls.hIcon          = LoadIcon(hInst, MAKEINTATOM(ID_APP));
         cls.lpszMenuName   = MAKEINTATOM(ID_APP);
         cls.lpszClassName  = MAKEINTATOM(ID_APP);
         cls.hbrBackground  = (HBRUSH)(COLOR_WINDOW + 1);
