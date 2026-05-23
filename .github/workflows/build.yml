@@ -1,13 +1,54 @@
-- name: Verify Patch and Compile
+name: Compile Custom AMCap KVM Client
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Custom AMCap Repository
+      uses: actions/checkout@v4
+
+    - name: Fetch Microsoft DirectShow BaseClasses
       run: |
-        cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\capture\amcap
+        git clone --depth 1 --filter=blob:none --sparse https://github.com/microsoft/Windows-classic-samples.git
+        cd Windows-classic-samples
+        git sparse-checkout set Samples/Win7Samples/multimedia/directshow/baseclasses Samples/Win7Samples/multimedia/directshow/common
+      shell: cmd
+
+    - name: Setup MSVC Compiler Environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Compile DirectShow BaseClasses Engine
+      run: |
+        cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        cl /nologo /O2 /c /D_AMD64_ /DUNICODE /D_UNICODE /I. *.cpp
+        lib /nologo /OUT:STRMBASE.lib *.obj
+      shell: cmd
+
+    - name: Compile Custom AMCap Executable
+      run: |
+        :: Map the Microsoft backend libraries to your local workspace
+        set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
+        set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         
-        :: Verify the header was actually updated before trying to compile
-        findstr "ID_VIEW_FULLSCREEN" resource.h || (echo "ERROR: resource.h not patched!" && exit 1)
+        :: 1. Compile your custom resource layout
+        rc /fo amcap.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
         
-        :: Compile resource
-        rc /fo amcap.res /d UNICODE /d _UNICODE /I. /I"..\..\baseclasses" /I"." amcap.rc
-        
-        :: Compile and link
+        :: 2. Compile your modified C++ source code into the final executable
         cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /EHsc amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
+
+    - name: Upload Production Binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: amcap-custom-kvm-client
+        path: amcap.exe
