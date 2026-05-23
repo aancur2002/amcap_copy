@@ -496,38 +496,39 @@ int PASCAL WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR szCmdLine, int sw)
 {
     MSG msg;
 
-    /* Call initialization procedure */
     if(!AppInit(hInst,hPrev,sw))
         return FALSE;
 
-    /*
-    * Polling messages from event queue
-    */
     for(;;)
     {
         while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-		{
-		    if(msg.message == WM_QUIT)
-		        break;
-		
-		    // ADD THIS BLOCK
-		    if(msg.message == WM_SYSKEYDOWN)
-		    {
-		        if(msg.wParam == VK_F11 && (GetKeyState(VK_MENU) & 0x8000))
-		        {
-		            ToggleFullScreen(ghwndApp);
-		            continue;
-		        }
-		    }
-		
-		    if(TranslateAccelerator(ghwndApp, ghAccel, &msg))
-		        continue;
-		
-		    TranslateMessage(&msg);
-		    DispatchMessage(&msg);
-		}
+        {
+            if(msg.message == WM_QUIT)
+                break;
 
-    // Reached on WM_QUIT message
+            // Alt+F11 fullscreen toggle
+            if(msg.message == WM_SYSKEYDOWN)
+            {
+                if(msg.wParam == VK_F11 && (GetKeyState(VK_MENU) & 0x8000))
+                {
+                    ToggleFullScreen(ghwndApp);
+                    continue;
+                }
+            }
+
+            if(TranslateAccelerator(ghwndApp, ghAccel, &msg))
+                continue;
+
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+
+        if(msg.message == WM_QUIT)
+            break;
+
+        WaitMessage();
+    }
+
     CoUninitialize();
     return ((int) msg.wParam);
 }
