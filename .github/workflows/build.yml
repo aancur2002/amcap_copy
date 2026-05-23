@@ -29,23 +29,23 @@ jobs:
     - name: Compile DirectShow BaseClasses Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        :: We define both _DEBUG and DEBUG to ensure wxdebug.cpp exports logging functions
-        :: /Zc:wchar_t is critical to match the wide-string symbols in your obj files
+        :: We MUST define DEBUG to export symbols, and _DEBUG for CRT compatibility
         cl /nologo /O2 /c /D_AMD64_ /D_WIN32 /DUNICODE /D_UNICODE /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t /I. *.cpp
         lib /nologo /OUT:STRMBASE.lib *.obj
       shell: cmd
 
     - name: Compile Custom AMCap Executable
       run: |
-        :: Map the Microsoft backend libraries
-        set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        :: Setup paths
+        set BASE_PATH=${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set INCLUDE=%INCLUDE%;%BASE_PATH%
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
-        set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
+        set LIB=%LIB%;%BASE_PATH%
         
-        :: 1. Compile custom resource layout
-        rc /fo amcap.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
+        :: 1. Compile resource
+        rc /fo amcap.res /d UNICODE /d _UNICODE /I"%BASE_PATH%" amcap.rc
         
-        :: 2. Link with identical macros to ensure symbol resolution for DbgAssert/DbgLogInfo
+        :: 2. Compile and Link: Using identical flags to the baseclasses compilation above
         cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
