@@ -94,6 +94,7 @@ extern "C"
 #define MENU_DIALOGE        56
 #define MENU_DIALOGF        57
 #define MENU_MPEG2          58  // !!! more?
+#define MENU_FULLSCREEN     59  // KVM Fullscreen Mode
 
 
 // Dialogs
