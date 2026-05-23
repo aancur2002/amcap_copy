@@ -364,9 +364,9 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     ShowWindow(ghwndApp,sw);
 
 	// Auto-enable preview on startup
-	gcap.fWantPreview = TRUE;
-	BuildPreviewGraph();
-	StartPreview();
+	//gcap.fWantPreview = TRUE;
+	//BuildPreviewGraph();
+	//StartPreview();
 
     // Read the capture file name from win.ini
     GetProfileString(TEXT("annie"), TEXT("CaptureFile"), TEXT(""),
@@ -396,7 +396,7 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     gcap.fCapCC    = GetProfileInt(TEXT("annie"), TEXT("CaptureCC"), FALSE);
 
     // do we want preview?
-    gcap.fWantPreview = GetProfileInt(TEXT("annie"), TEXT("WantPreview"), FALSE);
+    gcap.fWantPreview = GetProfileInt(TEXT("annie"), TEXT("WantPreview"), TRUE);
 
     // which stream should be the master? NONE(-1) means nothing special happens
     // AUDIO(1) means the video frame rate is changed before written out to keep
