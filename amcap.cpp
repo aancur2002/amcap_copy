@@ -340,6 +340,10 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
                             hInst,                  // handle to window instance
                             (LPSTR)NULL             // no params to pass on
                             );
+	// Set application icon (title bar + taskbar)
+	HICON hIcon = LoadIcon(hInst, MAKEINTRESOURCE(ID_APP_ICON));
+	SendMessage(ghwndApp, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+	SendMessage(ghwndApp, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
 
     // create the status bar
     statusInit(hInst, hPrev);
