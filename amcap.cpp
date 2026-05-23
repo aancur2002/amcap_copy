@@ -318,7 +318,7 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
         cls.cbWndExtra     = 0;
         cls.cbClsExtra     = 0;
 
-        if(!RegisterClassEX(&cls))
+        if(!RegisterClassEx(&cls))
             return FALSE;
     }
 
@@ -362,6 +362,11 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
         return(FALSE);
 
     ShowWindow(ghwndApp,sw);
+
+	// Auto-enable preview on startup
+	gcap.fWantPreview = TRUE;
+	BuildPreviewGraph();
+	StartPreview();
 
     // Read the capture file name from win.ini
     GetProfileString(TEXT("annie"), TEXT("CaptureFile"), TEXT(""),
