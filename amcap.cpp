@@ -755,7 +755,7 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 ToggleFullScreen(hwnd);
                 return 0;
             }
-            if (wParam == VK_RETURN) {
+            if (wParam == 'S' && (GetKeyState(VK_MENU) & 0x8000)) {
                 ToggleFullScreen(hwnd);
                 return 0;
             }
