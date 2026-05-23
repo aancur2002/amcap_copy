@@ -37,7 +37,7 @@ BEGIN
     POPUP "&Options"
         BEGIN
             MENUITEM "&Preview"             , MENU_PREVIEW
-            MENUITEM "&Full Screen\tAlt+E"  , MENU_FULLSCREEN
+            MENUITEM "&Full Screen\tAlt+S"  , MENU_FULLSCREEN
         MENUITEM SEPARATOR
             MENUITEM "&MPEG2"               , MENU_MPEG2
             MENUITEM SEPARATOR
