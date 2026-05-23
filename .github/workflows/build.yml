@@ -29,7 +29,8 @@ jobs:
     - name: Compile DirectShow BaseClasses Engine
       run: |
         cd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        :: Added /DDEBUG explicitly alongside /D_DEBUG to activate functions inside wxdebug.cpp
+        :: We define both _DEBUG and DEBUG to ensure wxdebug.cpp exports logging functions
+        :: We use /Zc:wchar_t to ensure wide-string compatibility
         cl /nologo /O2 /c /D_AMD64_ /D_WIN32 /DUNICODE /D_UNICODE /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t /I. *.cpp
         lib /nologo /OUT:STRMBASE.lib *.obj
       shell: cmd
@@ -41,11 +42,10 @@ jobs:
         set INCLUDE=%INCLUDE%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
         set LIB=%LIB%;${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         
-        :: 1. Compile your custom resource layout
+        :: 1. Compile custom resource layout
         rc /fo amcap.res /d UNICODE /d _UNICODE /I"${{ github.workspace }}\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses" amcap.rc
         
-        :: 2. Compile your modified C++ source code into the final executable
-        :: Match identical macro pairs (/D_DEBUG /DDEBUG) to resolve all 3 unresolved externals
+        :: 2. Compile and link C++ source code with identical macros to the library
         cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res /link STRMBASE.lib user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib /OUT:amcap.exe /SUBSYSTEM:WINDOWS
       shell: cmd
 
