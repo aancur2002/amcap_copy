@@ -288,7 +288,9 @@ void SetAppCaption()
 \*----------------------------------------------------------------------------*/
 BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
 {
-    WNDCLASS    cls;
+    WNDCLASSEX cls = {0};
+    cls.cbSize = sizeof(WNDCLASSEX);  // REQUIRED - must be first field set
+	//WNDCLASS    cls;
     HDC         hdc;
 
     const DWORD  dwExStyle = 0;
