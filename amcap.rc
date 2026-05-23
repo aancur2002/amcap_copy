@@ -15,7 +15,8 @@
 //
 // Icons
 //
-ID_APP_ICON ICON "app.ico"
+//ID_APP_ICON ICON "app.ico"
+101 ICON "app.ico"
 //
 // Main menu
 //
