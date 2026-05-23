@@ -114,9 +114,45 @@ struct _capstuff
     HMENU hMenuPopup;
     int iNumVCapDevices;
 } gcap;
+// added
+bool            g_bFullScreen = false;
+WINDOWPLACEMENT g_wpPrev = { sizeof(WINDOWPLACEMENT) };
+HMENU           g_hMainMenu = NULL;
 
-
-
+void ToggleFullScreen(HWND hwnd)
+{
+    DWORD dwStyle = GetWindowLong(hwnd, GWL_STYLE);
+    if (!g_bFullScreen) {
+        GetWindowPlacement(hwnd, &g_wpPrev);
+        HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = { sizeof(MONITORINFO) };
+        GetMonitorInfo(hMonitor, &mi);
+        g_hMainMenu = GetMenu(hwnd);
+        SetMenu(hwnd, NULL);
+        SetWindowLong(hwnd, GWL_STYLE, dwStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX));
+        SetWindowPos(hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+                     mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        ShowWindow(ghwndStatus, SW_HIDE); // Hide status bar
+        g_bFullScreen = true;
+    } else {
+        SetWindowLong(hwnd, GWL_STYLE, dwStyle | (WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX));
+        if (g_hMainMenu) SetMenu(hwnd, g_hMainMenu);
+        SetWindowPlacement(hwnd, &g_wpPrev);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        ShowWindow(ghwndStatus, SW_SHOW); // Show status bar
+        g_bFullScreen = false;
+    }
+    if (gcap.pVW) {
+        RECT rc; GetClientRect(hwnd, &rc);
+        if (!g_bFullScreen) {
+            int cy = statusGetHeight() + GetSystemMetrics(SM_CYBORDER);
+            rc.bottom -= cy;
+        }
+        gcap.pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
+    }
+}
+// added
 // implements IAMCopyCaptureFileProgress
 //
 class CProgress : public IAMCopyCaptureFileProgress
@@ -708,8 +744,23 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_ERASEBKGND:
             break;
 
-        // ESC will stop capture
+        // KVM Double Click Logic
+        case WM_LBUTTONDBLCLK:
+            ToggleFullScreen(hwnd);
+            return 0;
+
         case WM_KEYDOWN:
+            // KVM Escape / Enter Logic
+            if (wParam == VK_ESCAPE && g_bFullScreen) {
+                ToggleFullScreen(hwnd);
+                return 0;
+            }
+            if (wParam == VK_RETURN) {
+                ToggleFullScreen(hwnd);
+                return 0;
+            }
+            
+            // Original ESC will stop capture
             if((GetAsyncKeyState(VK_ESCAPE) & 0x01) && gcap.fCapturing)
             {
                 StopCapture();
@@ -753,16 +804,16 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
 
         case WM_SIZE:
-            // make the preview window fit inside our window, taking up
-            // all of our client area except for the status window at the
-            // bottom
+            // make the preview window fit inside our window
             GetClientRect(ghwndApp, &rc);
-            cxBorder = GetSystemMetrics(SM_CXBORDER);
-            cyBorder = GetSystemMetrics(SM_CYBORDER);
-            cy = statusGetHeight() + cyBorder;
-            MoveWindow(ghwndStatus, -cxBorder, rc.bottom - cy,
-                rc.right + (2 * cxBorder), cy + cyBorder, TRUE);
-            rc.bottom -= cy;
+            if (!g_bFullScreen) {
+                cxBorder = GetSystemMetrics(SM_CXBORDER);
+                cyBorder = GetSystemMetrics(SM_CYBORDER);
+                cy = statusGetHeight() + cyBorder;
+                MoveWindow(ghwndStatus, -cxBorder, rc.bottom - cy,
+                    rc.right + (2 * cxBorder), cy + cyBorder, TRUE);
+                rc.bottom -= cy;
+            }
             // this is the video renderer window showing the preview
             if(gcap.pVW)
                 gcap.pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
@@ -3045,6 +3096,11 @@ LONG PASCAL AppCommand(HWND hwnd, unsigned msg, WPARAM wParam, LPARAM lParam)
 
     switch(id)
     {
+        // KVM Full Screen Toggle
+        case MENU_FULLSCREEN:
+            ToggleFullScreen(hwnd);
+            break;
+
         // Our about box
         //
         case MENU_ABOUT:
