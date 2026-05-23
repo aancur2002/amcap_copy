@@ -505,23 +505,27 @@ int PASCAL WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR szCmdLine, int sw)
     */
     for(;;)
     {
-        while(PeekMessage(&msg, NULL, 0, 0,PM_REMOVE))
-        {
-            if(msg.message == WM_QUIT)
-                break;  // Leave the PeekMessage while() loop
-
-            if(TranslateAccelerator(ghwndApp, ghAccel, &msg))
-                continue;
-
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-
-        if(msg.message == WM_QUIT)
-            break;  // Leave the for() loop
-
-        WaitMessage();
-    }
+        while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+		    if(msg.message == WM_QUIT)
+		        break;
+		
+		    // ADD THIS BLOCK
+		    if(msg.message == WM_SYSKEYDOWN)
+		    {
+		        if(msg.wParam == VK_F11 && (GetKeyState(VK_MENU) & 0x8000))
+		        {
+		            ToggleFullScreen(ghwndApp);
+		            continue;
+		        }
+		    }
+		
+		    if(TranslateAccelerator(ghwndApp, ghAccel, &msg))
+		        continue;
+		
+		    TranslateMessage(&msg);
+		    DispatchMessage(&msg);
+		}
 
     // Reached on WM_QUIT message
     CoUninitialize();
@@ -766,10 +770,10 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		        ToggleFullScreen(hwnd);
 		        return 0;
 		    }
-		    if (wParam == 'S' && (GetKeyState(VK_MENU) & 0x8000)) {
-		        ToggleFullScreen(hwnd);
-		        return 0;
-		    }
+		    //if (wParam == 'S' && (GetKeyState(VK_MENU) & 0x8000)) {
+		    //    ToggleFullScreen(hwnd);
+		     //   return 0;
+		    //}
 		    // Original ESC stop capture logic
 		    if((GetAsyncKeyState(VK_ESCAPE) & 0x01) && gcap.fCapturing)
 		    {
