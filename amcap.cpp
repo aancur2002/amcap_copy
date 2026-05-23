@@ -319,7 +319,7 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
         cls.cbWndExtra     = 0;
         cls.cbClsExtra     = 0;
 
-        if(!RegisterClass(&cls))
+        if(!RegisterClassEX(&cls))
             return FALSE;
     }
 
