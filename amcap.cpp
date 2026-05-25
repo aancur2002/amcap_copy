@@ -1301,18 +1301,23 @@ BOOL InitCapFilters()
         // DV capture does not use a VIDEOINFOHEADER
         if(pmt->formattype == FORMAT_VideoInfo)
         {
-            // Override the default capture size to 1360x768.
-            // The user can change it later via the Video Capture Pin dialog.
+            // BUG FIX (Bug 3): Restore the user's last-saved video format.
+            // Previously this always forced 1360x768, so any resolution the user
+            // set via the Video Format dialog was silently discarded on next launch.
+            // Now we read the saved width/height from the profile; if none is saved
+            // (first run) we fall back to 1360x768 as the default.
+            int savedW = GetProfileInt(TEXT("annie"), TEXT("VideoWidth"),  1360);
+            int savedH = GetProfileInt(TEXT("annie"), TEXT("VideoHeight"), 768);
             VIDEOINFOHEADER *pVih = reinterpret_cast<VIDEOINFOHEADER *>(pmt->pbFormat);
-            pVih->bmiHeader.biWidth  = 1360;
-            pVih->bmiHeader.biHeight = 768;
+            pVih->bmiHeader.biWidth  = savedW;
+            pVih->bmiHeader.biHeight = savedH;
             pVih->bmiHeader.biSizeImage = DIBSIZE(pVih->bmiHeader);
             // Attempt to apply the format; if the device doesn't support
-            // 1360x768 this will fail silently and the driver default is kept.
+            // the saved resolution this will fail silently and the driver default is kept.
             HRESULT hrFmt = gcap.pVSC->SetFormat(pmt);
             if(FAILED(hrFmt))
             {
-                // Device rejected 1360x768 – re-read the format actually set
+                // Device rejected saved resolution – re-read the format actually set
                 // so that ResizeWindow below uses the real dimensions.
                 DeleteMediaType(pmt);
                 if(gcap.pVSC->GetFormat(&pmt) != S_OK)
@@ -1765,6 +1770,9 @@ BOOL BuildCaptureGraph()
                        TEXT("Capturing uncompressed AVI instead.\n\n")
                        TEXT("Install a codec pack (e.g. K-Lite) to enable MJPEG."));
                 gcap.fUseMJPEG = FALSE;
+                // BUG FIX (Bug 4): Persist the FALSE immediately so the error
+                // dialog does not reappear on every subsequent launch.
+                WriteProfileString(TEXT("annie"), TEXT("UseMJPEG"), TEXT("0"));
             }
         }
 
@@ -1815,7 +1823,7 @@ BOOL BuildCaptureGraph()
     else
     {
         SmartPtr< IBaseFilter > sink;
-        if( &gcap.pSink )
+        if( gcap.pSink )  // BUG FIX: was "&gcap.pSink" (address of pointer, always non-null)
         {
             gcap.pSink->QueryInterface( IID_IBaseFilter, reinterpret_cast<void **>( &sink ) );
         }
@@ -3715,6 +3723,16 @@ LONG PASCAL AppCommand(HWND hwnd, unsigned msg, WPARAM wParam, LPARAM lParam)
                             // resize our window to the new capture size
                             ResizeWindow(HEADER(pmt->pbFormat)->biWidth,
                                 abs(HEADER(pmt->pbFormat)->biHeight));
+
+                            // BUG FIX (Bug 3): Persist the new format immediately so
+                            // it survives a crash or abnormal exit (not just OnClose).
+                            TCHAR szFmtBuf[32];
+                            StringCchPrintf(szFmtBuf, 32, TEXT("%d"),
+                                HEADER(pmt->pbFormat)->biWidth);
+                            WriteProfileString(TEXT("annie"), TEXT("VideoWidth"), szFmtBuf);
+                            StringCchPrintf(szFmtBuf, 32, TEXT("%d"),
+                                HEADER(pmt->pbFormat)->biHeight);
+                            WriteProfileString(TEXT("annie"), TEXT("VideoHeight"), szFmtBuf);
                         }
                         DeleteMediaType(pmt);
                     }
@@ -4886,4 +4904,23 @@ void OnClose()
 
     hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.dwTimeLimit);
     WriteProfileString(TEXT("annie"), TEXT("TimeLimit"), szBuf);
-}
+
+    // BUG FIX (Bug 3): Save the video capture format (resolution) so it persists
+    // across restarts. Previously the user's format dialog changes were lost every
+    // session because only the hardcoded 1360x768 was ever applied at startup.
+    if(gcap.pVSC)
+    {
+        AM_MEDIA_TYPE *pmtSave = NULL;
+        if(SUCCEEDED(gcap.pVSC->GetFormat(&pmtSave)) && pmtSave)
+        {
+            if(pmtSave->formattype == FORMAT_VideoInfo && pmtSave->pbFormat)
+            {
+                VIDEOINFOHEADER *pVihSave = reinterpret_cast<VIDEOINFOHEADER *>(pmtSave->pbFormat);
+                hr = StringCchPrintf(szBuf, 512, TEXT("%d"), pVihSave->bmiHeader.biWidth);
+                WriteProfileString(TEXT("annie"), TEXT("VideoWidth"), szBuf);
+                hr = StringCchPrintf(szBuf, 512, TEXT("%d"), pVihSave->bmiHeader.biHeight);
+                WriteProfileString(TEXT("annie"), TEXT("VideoHeight"), szBuf);
+            }
+            DeleteMediaType(pmtSave);
+        }
+    }
