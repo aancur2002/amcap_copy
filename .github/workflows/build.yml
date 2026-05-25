@@ -129,7 +129,7 @@ jobs:
 
         :: ── Compile resource file ───────────────────────────────────────────
         :: rc.exe needs INCLUDE set (done above) to find windows.h and amcap.h
-        rc /nologo /fo amcap.res /d UNICODE /d _UNICODE amcap.rc
+        rc /nologo /fo amcap.res /I"." /I"%BASE_PATH%" /I"%COMMON_PATH%" /d UNICODE /d _UNICODE amcap.rc
         if errorlevel 1 (
           echo [ERROR] Resource compile failed
           exit /b 1
@@ -151,7 +151,7 @@ jobs:
         ::
         cl /nologo /O2 /MT /W3 /EHsc /Zc:wchar_t /GS ^
            /DWIN32 /D_WIN32 /DNDEBUG /DUNICODE /D_UNICODE ^
-           /I"%BASE_PATH%" /I"%COMMON_PATH%" ^
+           /I"." /I"%BASE_PATH%" /I"%COMMON_PATH%" ^
            amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp stdafx.cpp ^
            amcap.res ^
            /link ^
