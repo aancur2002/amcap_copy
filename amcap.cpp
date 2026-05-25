@@ -427,9 +427,11 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     gcap.fCapAudio = GetProfileInt(TEXT("annie"), TEXT("CaptureAudio"), TRUE);
     gcap.fCapCC    = GetProfileInt(TEXT("annie"), TEXT("CaptureCC"), FALSE);
 
-    // WMV output format preference (saves space vs AVI)
-    // Default to WMV/ASF (TRUE) - 5-10x smaller files than AVI, no extra codecs needed.
-    gcap.fUseWMV   = GetProfileInt(TEXT("annie"), TEXT("UseWMV"), TRUE);
+    // WMV output format preference.
+    // Default to AVI (FALSE) for maximum compatibility - WMV requires qasf.dll
+    // (Windows Media Format SDK) which is absent on some systems (e.g. Windows
+    // Server, stripped-down installs).  User can enable WMV via Options menu.
+    gcap.fUseWMV   = GetProfileInt(TEXT("annie"), TEXT("UseWMV"), FALSE);
 
     // If we loaded a saved capture filename, make sure its extension matches
     // the current format setting so there is no mismatch on first capture.
@@ -1594,6 +1596,9 @@ BOOL BuildCaptureGraph()
             WCHAR *pExt = wcsrchr(gcap.wszCaptureFile, L'.');
             if(pExt) StringCchCopyW(pExt, 5, L".avi");
             SetAppCaption();
+            // Release any partial pRender/pSink the failed call may have left
+            SAFE_RELEASE(gcap.pRender);
+            SAFE_RELEASE(gcap.pSink);
             // Retry with AVI
             hr = gcap.pBuilder->SetOutputFileName(&MEDIASUBTYPE_Avi,
                                                   gcap.wszCaptureFile,
@@ -1702,8 +1707,9 @@ BOOL BuildCaptureGraph()
 
     //
     // Render the audio capture pin?
-    // For WMV/ASF the writer handles audio automatically through its own pins;
-    // we still render it here so the graph builder connects things properly.
+    // Non-fatal: if audio fails (device unplugged, driver conflict, format
+    // mismatch after WMV->AVI fallback), degrade to video-only capture
+    // rather than aborting the whole graph.
     //
 
     if(!gcap.fMPEG2 && gcap.fCapAudio)
@@ -1712,8 +1718,9 @@ BOOL BuildCaptureGraph()
                                          gcap.pACap, NULL, gcap.pRender);
         if(hr != NOERROR)
         {
-            ErrMsg(TEXT("Cannot render audio capture stream"));
-            goto SetupCaptureFail;
+            // Degrade gracefully to video-only.
+            gcap.fCapAudio = FALSE;
+            SAFE_RELEASE(gcap.pACap);
         }
     }
 
