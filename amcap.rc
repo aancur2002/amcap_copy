@@ -40,6 +40,7 @@ BEGIN
             MENUITEM "&Full Screen\tAlt+F11"  , MENU_FULLSCREEN
         MENUITEM SEPARATOR
             MENUITEM "&MPEG2"               , MENU_MPEG2
+            MENUITEM "&WMV Output (smaller files)" , MENU_WMV
             MENUITEM SEPARATOR
             MENUITEM "&Audio Format..."     , MENU_AUDIOFORMAT
             MENUITEM SEPARATOR
@@ -160,5 +161,3 @@ END
 #define VERSION_RES_TYPE            VFT_APP
 
 #define AMOVIE_SELF_REGISTER
-
-
