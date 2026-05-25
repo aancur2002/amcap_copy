@@ -96,7 +96,7 @@ extern "C"
 #define MENU_MPEG2          58  // !!! more?
 #define MENU_FULLSCREEN     59  // KVM Fullscreen Mode
 #define MENU_WMV            60  // Toggle WMV/ASF output (smaller files)
-#define MENU_MJPEG          61  // Toggle MJPEG compression (smaller AVI files)
+#define MENU_MJPEG          40045  // Toggle MJPEG compression (smaller AVI files)
 #define ID_APP_ICON         101
 
 
