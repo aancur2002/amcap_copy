@@ -114,6 +114,8 @@ struct _capstuff
     HMENU hMenuPopup;
     int iNumVCapDevices;
     BOOL fUseWMV;       // TRUE = capture to WMV/ASF, FALSE = AVI
+    BOOL fUseMJPEG;     // TRUE = compress AVI with MJPEG, FALSE = uncompressed AVI
+    IBaseFilter *pMJPEGCompressor; // MJPEG encoder filter (in graph when fUseMJPEG)
 } gcap;
 // added
 bool            g_bFullScreen = false;
@@ -433,6 +435,12 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     // Server, stripped-down installs).  User can enable WMV via Options menu.
     gcap.fUseWMV   = GetProfileInt(TEXT("annie"), TEXT("UseWMV"), FALSE);
 
+    // MJPEG compression: default ON so AVI files are a manageable size.
+    // MJPEG is built into Windows (msvidc32.dll / FOURCC MJPG) and gives
+    // ~10-20x size reduction over uncompressed AVI at near-lossless quality.
+    gcap.fUseMJPEG = GetProfileInt(TEXT("annie"), TEXT("UseMJPEG"), TRUE);
+    gcap.pMJPEGCompressor = NULL;
+
     // If we loaded a saved capture filename, make sure its extension matches
     // the current format setting so there is no mismatch on first capture.
     if(gcap.wszCaptureFile[0] != 0)
@@ -713,6 +721,15 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 (gcap.fUseWMV) ? MF_CHECKED : MF_UNCHECKED);
             EnableMenuItem((HMENU)wParam, MENU_WMV,
                 !gcap.fCapturing ? MF_ENABLED : MF_GRAYED);
+
+            // MJPEG compression toggle (only meaningful for AVI output)
+            CheckMenuItem((HMENU)wParam, MENU_MJPEG,
+                (gcap.fUseMJPEG) ? MF_CHECKED : MF_UNCHECKED);
+            // Grey out when capturing, or when WMV/MPEG2 is selected (MJPEG
+            // only applies to AVI)
+            EnableMenuItem((HMENU)wParam, MENU_MJPEG,
+                (!gcap.fCapturing && !gcap.fUseWMV && !gcap.fMPEG2)
+                    ? MF_ENABLED : MF_GRAYED);
 
 
             // which is the master stream? Not applicable unless we're also
@@ -1122,6 +1139,7 @@ void TearDownGraph()
     SAFE_RELEASE(gcap.pRender);
     SAFE_RELEASE(gcap.pME);
     SAFE_RELEASE(gcap.pDF);
+    SAFE_RELEASE(gcap.pMJPEGCompressor);
 
     if(gcap.pVW)
     {
@@ -1522,6 +1540,72 @@ void FreeCapFilters()
 
 // build the capture graph
 //
+// CreateMJPEGCompressor
+// ---------------------
+// Finds and instantiates the first MJPEG video compressor registered on this
+// system.  On all Windows versions this is the Microsoft MJPEG Encoder
+// (FOURCC MJPG, msvidc32.dll).  Returns an IBaseFilter* (caller must Release)
+// or NULL if none is found.
+//
+static IBaseFilter* CreateMJPEGCompressor()
+{
+    ICreateDevEnum *pDevEnum = NULL;
+    HRESULT hr = CoCreateInstance(CLSID_SystemDeviceEnum, NULL,
+                                  CLSCTX_INPROC_SERVER,
+                                  IID_ICreateDevEnum, (void**)&pDevEnum);
+    if(FAILED(hr) || !pDevEnum)
+        return NULL;
+
+    IEnumMoniker *pEnum = NULL;
+    hr = pDevEnum->CreateClassEnumerator(CLSID_VideoCompressorCategory, &pEnum, 0);
+    pDevEnum->Release();
+    if(FAILED(hr) || !pEnum)
+        return NULL;
+
+    IBaseFilter *pFound = NULL;
+    IMoniker    *pMoniker = NULL;
+    ULONG        cFetched = 0;
+
+    while(pEnum->Next(1, &pMoniker, &cFetched) == S_OK)
+    {
+        // Read the FriendlyName so we can match MJPEG
+        IPropertyBag *pBag = NULL;
+        if(SUCCEEDED(pMoniker->BindToStorage(0, 0, IID_IPropertyBag, (void**)&pBag)))
+        {
+            VARIANT var;
+            VariantInit(&var);
+            var.vt = VT_BSTR;
+            if(SUCCEEDED(pBag->Read(L"FriendlyName", &var, NULL)))
+            {
+                // Accept any codec whose name contains "MJPEG" or "mjpg" (case-insensitive).
+                // The built-in Windows encoder reports "Microsoft MJPEG Compressor".
+                WCHAR upper[256] = {};
+                StringCchCopyW(upper, 256, var.bstrVal);
+                CharUpperW(upper);
+                if(wcsstr(upper, L"MJPEG") || wcsstr(upper, L"MJPG"))
+                {
+                    // Instantiate the filter
+                    IBaseFilter *pFilter = NULL;
+                    if(SUCCEEDED(pMoniker->BindToObject(0, 0, IID_IBaseFilter,
+                                                        (void**)&pFilter)))
+                    {
+                        pFound = pFilter; // caller owns the ref
+                    }
+                    SysFreeString(var.bstrVal);
+                    pBag->Release();
+                    pMoniker->Release();
+                    break;
+                }
+                SysFreeString(var.bstrVal);
+            }
+            pBag->Release();
+        }
+        pMoniker->Release();
+    }
+    pEnum->Release();
+    return pFound;  // NULL if no MJPEG compressor found
+}
+
 BOOL BuildCaptureGraph()
 {
     int cy, cyBorder;
@@ -1650,14 +1734,50 @@ BOOL BuildCaptureGraph()
 
     if( !gcap.fMPEG2 )
     {
+        // If MJPEG compression is enabled, create the compressor filter and
+        // add it to the graph so RenderStream inserts it between capture pin
+        // and the AVI mux.  We only do this for plain AVI (not WMV/MPEG2).
+        IBaseFilter *pCompressor = NULL;
+        if(gcap.fUseMJPEG && !gcap.fUseWMV)
+        {
+            pCompressor = CreateMJPEGCompressor();
+            if(pCompressor)
+            {
+                hr = gcap.pFg->AddFilter(pCompressor, L"MJPEG Compressor");
+                if(FAILED(hr))
+                {
+                    // Adding failed — fall back to uncompressed rather than abort
+                    pCompressor->Release();
+                    pCompressor = NULL;
+                }
+                else
+                {
+                    // Keep a ref in gcap so TearDownGraph can remove it cleanly
+                    gcap.pMJPEGCompressor = pCompressor;
+                    gcap.pMJPEGCompressor->AddRef();
+                }
+            }
+            else
+            {
+                // No MJPEG compressor found on this system — capture uncompressed.
+                // This is non-fatal; just means bigger files.
+                ErrMsg(TEXT("MJPEG compressor not found on this system.\n")
+                       TEXT("Capturing uncompressed AVI instead.\n\n")
+                       TEXT("Install a codec pack (e.g. K-Lite) to enable MJPEG."));
+                gcap.fUseMJPEG = FALSE;
+            }
+        }
+
+        // pCompressor is NULL for uncompressed AVI, or the MJPEG filter.
+        // ICaptureGraphBuilder2::RenderStream inserts it automatically.
         hr = gcap.pBuilder->RenderStream(&PIN_CATEGORY_CAPTURE,
                                          &MEDIATYPE_Interleaved,
-                                         gcap.pVCap, NULL, gcap.pRender);
+                                         gcap.pVCap, pCompressor, gcap.pRender);
         if(hr != NOERROR)
         {
             hr = gcap.pBuilder->RenderStream(&PIN_CATEGORY_CAPTURE,
                                              &MEDIATYPE_Video,
-                                             gcap.pVCap, NULL, gcap.pRender);
+                                             gcap.pVCap, pCompressor, gcap.pRender);
             if(hr != NOERROR)
             {
                 ErrMsg(TEXT("Cannot render video capture stream"));
@@ -3396,6 +3516,13 @@ LONG PASCAL AppCommand(HWND hwnd, unsigned msg, WPARAM wParam, LPARAM lParam)
             // No need to rebuild graph now; takes effect on next capture
             break;
 
+        // Toggle MJPEG compression for AVI output
+        case MENU_MJPEG:
+            gcap.fUseMJPEG = !gcap.fUseMJPEG;
+            // Takes effect on next capture (graph is rebuilt then).
+            // No graph rebuild needed now - just save the preference.
+            break;
+
         // toggle preview
         //
         case MENU_PREVIEW:
@@ -4747,6 +4874,9 @@ void OnClose()
 
     hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.fUseWMV);
     WriteProfileString(TEXT("annie"), TEXT("UseWMV"), szBuf);
+
+    hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.fUseMJPEG);
+    WriteProfileString(TEXT("annie"), TEXT("UseMJPEG"), szBuf);
 
     hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.iMasterStream);
     WriteProfileString(TEXT("annie"), TEXT("MasterStream"), szBuf);
