@@ -113,6 +113,7 @@ struct _capstuff
     LONG NumberOfVideoInputs;
     HMENU hMenuPopup;
     int iNumVCapDevices;
+    BOOL fUseWMV;       // TRUE = capture to WMV/ASF, FALSE = AVI
 } gcap;
 // added
 bool            g_bFullScreen = false;
@@ -122,30 +123,59 @@ HMENU           g_hMainMenu = NULL;
 void ToggleFullScreen(HWND hwnd)
 {
     DWORD dwStyle = GetWindowLong(hwnd, GWL_STYLE);
-    if (!g_bFullScreen) {
+    if (!g_bFullScreen)
+    {
+        // Save window placement so we can restore it
         GetWindowPlacement(hwnd, &g_wpPrev);
+
         HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi = { sizeof(MONITORINFO) };
         GetMonitorInfo(hMonitor, &mi);
+
+        // Save and remove menu (menu bar takes space in fullscreen)
         g_hMainMenu = GetMenu(hwnd);
         SetMenu(hwnd, NULL);
-        SetWindowLong(hwnd, GWL_STYLE, dwStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX));
-        SetWindowPos(hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
-                     mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
-                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        ShowWindow(ghwndStatus, SW_HIDE); // Hide status bar
+
+        // Strip caption/border; keep WS_CLIPCHILDREN so renderer child paints correctly
+        SetWindowLong(hwnd, GWL_STYLE,
+            (dwStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU))
+            | WS_CLIPCHILDREN);
+
+        SetWindowPos(hwnd, HWND_TOP,
+            mi.rcMonitor.left,  mi.rcMonitor.top,
+            mi.rcMonitor.right  - mi.rcMonitor.left,
+            mi.rcMonitor.bottom - mi.rcMonitor.top,
+            SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+        ShowWindow(ghwndStatus, SW_HIDE);
         g_bFullScreen = true;
-    } else {
-        SetWindowLong(hwnd, GWL_STYLE, dwStyle | (WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX));
-        if (g_hMainMenu) SetMenu(hwnd, g_hMainMenu);
+    }
+    else
+    {
+        // Restore caption/border (keep WS_CLIPCHILDREN always)
+        SetWindowLong(hwnd, GWL_STYLE,
+            (dwStyle | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
+            | WS_CLIPCHILDREN);
+
+        if (g_hMainMenu)
+            SetMenu(hwnd, g_hMainMenu);
+
         SetWindowPlacement(hwnd, &g_wpPrev);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        ShowWindow(ghwndStatus, SW_SHOW); // Show status bar
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+        ShowWindow(ghwndStatus, SW_SHOW);
         g_bFullScreen = false;
     }
-    if (gcap.pVW) {
-        RECT rc; GetClientRect(hwnd, &rc);
-        if (!g_bFullScreen) {
+
+    // Resize the video renderer child window to fill the new client area
+    if (gcap.pVW)
+    {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        if (!g_bFullScreen)
+        {
+            // leave room for status bar in windowed mode
             int cy = statusGetHeight() + GetSystemMetrics(SM_CYBORDER);
             rc.bottom -= cy;
         }
@@ -332,7 +362,9 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     ghwndApp=CreateWindowEx(dwExStyle,
                             MAKEINTATOM(ID_APP),    // Class name
                             gszAppName,             // Caption
-                            // Style bits
+                            // Style bits - WS_CLIPCHILDREN is CRITICAL so the
+                            // DirectShow video renderer child window paints
+                            // correctly on all GPUs (prevents black screen)
                             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                             CW_USEDEFAULT, 0,       // Position
                             320,300,                // Size
@@ -394,6 +426,9 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     // do we want audio?
     gcap.fCapAudio = GetProfileInt(TEXT("annie"), TEXT("CaptureAudio"), TRUE);
     gcap.fCapCC    = GetProfileInt(TEXT("annie"), TEXT("CaptureCC"), FALSE);
+
+    // WMV output format preference (saves space vs AVI)
+    gcap.fUseWMV   = GetProfileInt(TEXT("annie"), TEXT("UseWMV"), FALSE);
 
     // do we want preview?
     gcap.fWantPreview = GetProfileInt(TEXT("annie"), TEXT("WantPreview"), TRUE);
@@ -656,6 +691,12 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             EnableMenuItem((HMENU)wParam, MENU_MPEG2,
                 !gcap.fCapturing ? MF_ENABLED : MF_GRAYED);
 
+            // WMV output format toggle
+            CheckMenuItem((HMENU)wParam, MENU_WMV,
+                (gcap.fUseWMV) ? MF_CHECKED : MF_UNCHECKED);
+            EnableMenuItem((HMENU)wParam, MENU_WMV,
+                !gcap.fCapturing ? MF_ENABLED : MF_GRAYED);
+
 
             // which is the master stream? Not applicable unless we're also
             // capturing audio
@@ -819,6 +860,15 @@ LONG WINAPI  AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
 
         case WM_SIZE:
+            // Enforce WS_CLIPCHILDREN every resize - required for video renderer
+            // to paint correctly on all GPUs / DWM configurations.
+            // Without it the renderer child window appears black on many systems.
+            {
+                LONG lStyle = GetWindowLong(ghwndApp, GWL_STYLE);
+                if (!(lStyle & WS_CLIPCHILDREN))
+                    SetWindowLong(ghwndApp, GWL_STYLE, lStyle | WS_CLIPCHILDREN);
+            }
+
             // make the preview window fit inside our window
             GetClientRect(ghwndApp, &rc);
             if (!g_bFullScreen) {
@@ -1466,14 +1516,22 @@ BOOL BuildCaptureGraph()
         TearDownGraph();
 
     //
-    // We need a rendering section that will write the capture file out in AVI
-    // file format
+    // We need a rendering section that will write the capture file out.
+    // Support AVI (original), WMV/ASF (smaller files, Windows built-in encoder),
+    // and MPEG2.
     //
 
     GUID guid;
-    if( gcap.fMPEG2 )
+    if (gcap.fMPEG2)
     {
         guid = MEDIASUBTYPE_Mpeg2;
+    }
+    else if (gcap.fUseWMV)
+    {
+        // ASF/WMV: uses the Windows built-in WM ASF Writer filter.
+        // Works on Windows 7+ with no third-party codecs.
+        // Files are 5-10x smaller than uncompressed AVI.
+        guid = MEDIASUBTYPE_Asf;
     }
     else
     {
@@ -1496,8 +1554,9 @@ BOOL BuildCaptureGraph()
     // NOTE: This is on by default, so it's not necessary to turn it on
 
     // Also, set the proper MASTER STREAM
+    // (AVI mux only - WMV/ASF writer handles sync internally)
 
-    if( !gcap.fMPEG2 )
+    if( !gcap.fMPEG2 && !gcap.fUseWMV )
     {
         hr = gcap.pRender->QueryInterface(IID_IConfigAviMux, (void **)&gcap.pConfigAviMux);
         if(hr == NOERROR && gcap.pConfigAviMux)
@@ -1561,8 +1620,9 @@ BOOL BuildCaptureGraph()
                 }
                 else if(hr != S_OK)
                 {
-                    ErrMsg(TEXT("Cannot render video preview stream"));
-                    goto SetupCaptureFail;
+                    // Preview failure is non-fatal; continue without preview
+                    // (some cameras only have a capture pin, not a preview pin)
+                    gcap.fWantPreview = FALSE;
                 }
             }
         }
@@ -1582,6 +1642,8 @@ BOOL BuildCaptureGraph()
 
     //
     // Render the audio capture pin?
+    // For WMV/ASF the writer handles audio automatically through its own pins;
+    // we still render it here so the graph builder connects things properly.
     //
 
     if(!gcap.fMPEG2 && gcap.fCapAudio)
@@ -1641,8 +1703,22 @@ BOOL BuildCaptureGraph()
         else if(hr == NOERROR)
         {
             RECT rc;
-            gcap.pVW->put_Owner((OAHWND)ghwndApp);    // We own the window now
-            gcap.pVW->put_WindowStyle(WS_CHILD);    // you are now a child
+
+            // ---------------------------------------------------------------
+            // BLACK SCREEN FIX:
+            // We must set WS_CLIPCHILDREN on the parent before embedding the
+            // renderer.  Without it the DWM compositing on Win7/8/10/11 can
+            // paint the window background colour over the video surface,
+            // giving a solid black rectangle on many GPUs.
+            // We also add WS_CLIPSIBLINGS to the child so it doesn't bleed
+            // into the status bar area.
+            // ---------------------------------------------------------------
+            LONG lParentStyle = GetWindowLong(ghwndApp, GWL_STYLE);
+            if (!(lParentStyle & WS_CLIPCHILDREN))
+                SetWindowLong(ghwndApp, GWL_STYLE, lParentStyle | WS_CLIPCHILDREN);
+
+            gcap.pVW->put_Owner((OAHWND)ghwndApp);
+            gcap.pVW->put_WindowStyle(WS_CHILD | WS_CLIPSIBLINGS);
 
             // give the preview window all our space but where the status bar is
             GetClientRect(ghwndApp, &rc);
@@ -1868,8 +1944,18 @@ BOOL BuildPreviewGraph()
         }
 
         RECT rc;
+
+        // ---------------------------------------------------------------
+        // BLACK SCREEN FIX (same as BuildCaptureGraph):
+        // Ensure WS_CLIPCHILDREN on parent and WS_CLIPSIBLINGS on child.
+        // This is the #1 cause of black preview on modern Windows/GPU combos.
+        // ---------------------------------------------------------------
+        LONG lParentStyle = GetWindowLong(ghwndApp, GWL_STYLE);
+        if (!(lParentStyle & WS_CLIPCHILDREN))
+            SetWindowLong(ghwndApp, GWL_STYLE, lParentStyle | WS_CLIPCHILDREN);
+
         gcap.pVW->put_Owner((OAHWND)ghwndApp);    // We own the window now
-        gcap.pVW->put_WindowStyle(WS_CHILD);    // you are now a child
+        gcap.pVW->put_WindowStyle(WS_CHILD | WS_CLIPSIBLINGS);
 
         // give the preview window all our space but where the status bar is
         GetClientRect(ghwndApp, &rc);
@@ -3150,9 +3236,12 @@ LONG PASCAL AppCommand(HWND hwnd, unsigned msg, WPARAM wParam, LPARAM lParam)
         // start capturing
         //
         case MENU_START_CAP:
+            // Always make sure any existing graph is fully torn down before
+            // building a new capture graph.  If StopPreview() failed silently
+            // (stale graph), not doing this causes BuildCaptureGraph() to fail.
             if(gcap.fPreviewing)
                 StopPreview();
-            if(gcap.fPreviewGraphBuilt)
+            if(gcap.fCaptureGraphBuilt || gcap.fPreviewGraphBuilt)
                 TearDownGraph();
 
             BuildCaptureGraph();
@@ -3176,6 +3265,12 @@ LONG PASCAL AppCommand(HWND hwnd, unsigned msg, WPARAM wParam, LPARAM lParam)
                 StartPreview();
             }
 
+            break;
+
+        // Toggle WMV/ASF output format (smaller files than AVI)
+        case MENU_WMV:
+            gcap.fUseWMV = !gcap.fUseWMV;
+            // No need to rebuild graph now; takes effect on next capture
             break;
 
         // toggle preview
@@ -3878,7 +3973,11 @@ BOOL OpenFileDialog(HWND hWnd, LPTSTR pszName, DWORD cchName)
     ZeroMemory(&ofn, sizeof(OPENFILENAME)) ;
     ofn.lStructSize   = sizeof(OPENFILENAME) ;
     ofn.hwndOwner     = hWnd ;
-    ofn.lpstrFilter   = TEXT("Microsoft AVI\0*.avi\0\0");
+    // Show the right file type filter based on the current output format
+    if (gcap.fUseWMV)
+        ofn.lpstrFilter = TEXT("Windows Media Video\0*.wmv\0All Files\0*.*\0\0");
+    else
+        ofn.lpstrFilter = TEXT("Microsoft AVI\0*.avi\0All Files\0*.*\0\0");
     ofn.nFilterIndex  = 0 ;
     ofn.lpstrFile     = szFileName;
     ofn.nMaxFile      = sizeof(szFileName) ;
@@ -4514,6 +4613,9 @@ void OnClose()
     hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.fWantPreview);
     WriteProfileString(TEXT("annie"), TEXT("WantPreview"), szBuf);
 
+    hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.fUseWMV);
+    WriteProfileString(TEXT("annie"), TEXT("UseWMV"), szBuf);
+
     hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.iMasterStream);
     WriteProfileString(TEXT("annie"), TEXT("MasterStream"), szBuf);
 
@@ -4523,9 +4625,3 @@ void OnClose()
     hr = StringCchPrintf(szBuf, 512, TEXT("%d"), gcap.dwTimeLimit);
     WriteProfileString(TEXT("annie"), TEXT("TimeLimit"), szBuf);
 }
-
-
-
-
-
-
