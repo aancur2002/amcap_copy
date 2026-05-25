@@ -1640,6 +1640,32 @@ BOOL BuildCaptureGraph()
             return f;
     }
 
+    // FIX: 0x80004005 graph start error - the file must exist on disk before
+    // the graph is built and Run() is called.  Two failure modes:
+    // 1) File has no extension (user typed "capture" with no dot) - the AVI/WMV
+    //    writer cannot open it, causing Run() to return E_FAIL (0x80004005).
+    // 2) File doesn't exist on disk yet (was never pre-allocated).
+    // Force the user to set a valid file in either case.
+    {
+        BOOL bNeedsFile = FALSE;
+
+        // Check for missing extension
+        if(wcsrchr(gcap.wszCaptureFile, L'.') == NULL)
+            bNeedsFile = TRUE;
+
+        // Check file doesn't exist on disk
+        if(!bNeedsFile &&
+           GetFileAttributes(gcap.wszCaptureFile) == INVALID_FILE_ATTRIBUTES)
+            bNeedsFile = TRUE;
+
+        if(bNeedsFile)
+        {
+            f = SetCaptureFile(ghwndApp);
+            if(!f)
+                return FALSE;
+        }
+    }
+
     // we already have another graph built... tear down the old one
     if(gcap.fPreviewGraphBuilt)
         TearDownGraph();
@@ -4285,15 +4311,25 @@ BOOL SetCaptureFile(HWND hWnd)
         // fUseWMV was already updated inside OpenFileDialog based on
         // the filter the user chose (AVI=1, WMV=2).
 
-        // Ensure the file extension matches the selected output format.
-        // This prevents writing WMV data into a .avi container (or vice versa).
+        // Ensure the file extension is correct.
+        // Case 1: file has a dot - fix if wrong extension.
+        // Case 2: file has NO dot at all - append the correct extension.
+        // Without this, typing "capture" (no dot) left the file with no
+        // extension, causing SetOutputFileName and graph Run() to fail
+        // with error 0x80004005.
         {
             WCHAR *pExt = wcsrchr(gcap.wszCaptureFile, L'.');
+            const WCHAR *pExpected = gcap.fUseWMV ? L".wmv" : L".avi";
             if(pExt)
             {
-                const WCHAR *pExpected = gcap.fUseWMV ? L".wmv" : L".avi";
+                // Has a dot - correct it if needed
                 if(_wcsicmp(pExt, pExpected) != 0)
                     StringCchCopyW(pExt, 5, pExpected);
+            }
+            else
+            {
+                // No extension at all - append one
+                StringCchCatW(gcap.wszCaptureFile, _MAX_PATH, pExpected);
             }
         }
 		if (GetFileAttributes(gcap.wszCaptureFile) == INVALID_FILE_ATTRIBUTES)
