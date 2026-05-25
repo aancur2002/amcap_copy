@@ -428,7 +428,22 @@ BOOL AppInit(HINSTANCE hInst, HINSTANCE hPrev, int sw)
     gcap.fCapCC    = GetProfileInt(TEXT("annie"), TEXT("CaptureCC"), FALSE);
 
     // WMV output format preference (saves space vs AVI)
-    gcap.fUseWMV   = GetProfileInt(TEXT("annie"), TEXT("UseWMV"), FALSE);
+    // Default to WMV/ASF (TRUE) - 5-10x smaller files than AVI, no extra codecs needed.
+    gcap.fUseWMV   = GetProfileInt(TEXT("annie"), TEXT("UseWMV"), TRUE);
+
+    // If we loaded a saved capture filename, make sure its extension matches
+    // the current format setting so there is no mismatch on first capture.
+    if(gcap.wszCaptureFile[0] != 0)
+    {
+        WCHAR *pExt = wcsrchr(gcap.wszCaptureFile, L'.');
+        if(pExt)
+        {
+            if(gcap.fUseWMV && _wcsicmp(pExt, L".avi") == 0)
+                StringCchCopyW(pExt, 5, L".wmv");
+            else if(!gcap.fUseWMV && _wcsicmp(pExt, L".wmv") == 0)
+                StringCchCopyW(pExt, 5, L".avi");
+        }
+    }
 
     // do we want preview?
     gcap.fWantPreview = GetProfileInt(TEXT("annie"), TEXT("WantPreview"), TRUE);
@@ -1266,11 +1281,31 @@ BOOL InitCapFilters()
         // DV capture does not use a VIDEOINFOHEADER
         if(pmt->formattype == FORMAT_VideoInfo)
         {
-            // resize our window to the default capture size
-            ResizeWindow(HEADER(pmt->pbFormat)->biWidth,
-                         ABS(HEADER(pmt->pbFormat)->biHeight));
+            // Override the default capture size to 1360x768.
+            // The user can change it later via the Video Capture Pin dialog.
+            VIDEOINFOHEADER *pVih = reinterpret_cast<VIDEOINFOHEADER *>(pmt->pbFormat);
+            pVih->bmiHeader.biWidth  = 1360;
+            pVih->bmiHeader.biHeight = 768;
+            pVih->bmiHeader.biSizeImage = DIBSIZE(pVih->bmiHeader);
+            // Attempt to apply the format; if the device doesn't support
+            // 1360x768 this will fail silently and the driver default is kept.
+            HRESULT hrFmt = gcap.pVSC->SetFormat(pmt);
+            if(FAILED(hrFmt))
+            {
+                // Device rejected 1360x768 – re-read the format actually set
+                // so that ResizeWindow below uses the real dimensions.
+                DeleteMediaType(pmt);
+                if(gcap.pVSC->GetFormat(&pmt) != S_OK)
+                    pmt = NULL;
+            }
+            if(pmt)
+            {
+                // resize our window to the (possibly updated) capture size
+                ResizeWindow(HEADER(pmt->pbFormat)->biWidth,
+                             ABS(HEADER(pmt->pbFormat)->biHeight));
+            }
         }
-        if(pmt->majortype != MEDIATYPE_Video)
+        if(pmt && pmt->majortype != MEDIATYPE_Video)
         {
             // This capture filter captures something other that pure video.
             // Maybe it's DV or something?  Anyway, chances are we shouldn't
@@ -1279,7 +1314,8 @@ BOOL InitCapFilters()
             gcap.fCapAudioIsRelevant = FALSE;
             gcap.fCapAudio = FALSE;
         }
-        DeleteMediaType(pmt);
+        if(pmt)
+            DeleteMediaType(pmt);
     }
 
     // we use this interface to bring up the 3 dialogs
@@ -1369,9 +1405,11 @@ BOOL InitCapFilters()
 
     if(gcap.pACap == NULL)
     {
-        // there are no audio capture devices. We'll only allow video capture
+        // No audio capture device available – silently fall back to video-only.
+        // This is normal on systems with no microphone or where the audio
+        // driver is not installed; showing a blocking error here is unhelpful
+        // because the application continues to work fine without audio.
         gcap.fCapAudio = FALSE;
-        ErrMsg(TEXT("Cannot create audio capture filter"));
         goto SkipAudio;
     }
 
@@ -1542,8 +1580,30 @@ BOOL BuildCaptureGraph()
                                           &gcap.pRender, &gcap.pSink);
     if(hr != NOERROR)
     {
-        ErrMsg(TEXT("Cannot set output file"));
-        goto SetupCaptureFail;
+        if(gcap.fUseWMV)
+        {
+            // ASF/WMV Writer (qasf.dll) failed.  This can happen if the
+            // Windows Media Format SDK is not installed or qasf.dll is not
+            // registered.  Fall back to AVI so the user isn't left with nothing.
+            ErrMsg(TEXT("Error %x: Cannot create WMV/ASF Writer filter.\n\n")
+                   TEXT("Make sure Windows Media Player / WMF SDK is installed\n")
+                   TEXT("and that qasf.dll is registered (regsvr32 qasf.dll).\n\n")
+                   TEXT("Falling back to AVI format for this capture."), hr);
+            gcap.fUseWMV = FALSE;
+            // Update the capture filename extension to .avi
+            WCHAR *pExt = wcsrchr(gcap.wszCaptureFile, L'.');
+            if(pExt) StringCchCopyW(pExt, 5, L".avi");
+            SetAppCaption();
+            // Retry with AVI
+            hr = gcap.pBuilder->SetOutputFileName(&MEDIASUBTYPE_Avi,
+                                                  gcap.wszCaptureFile,
+                                                  &gcap.pRender, &gcap.pSink);
+        }
+        if(hr != NOERROR)
+        {
+            ErrMsg(TEXT("Error %x: Cannot set output file"), hr);
+            goto SetupCaptureFail;
+        }
     }
 
     // Now tell the AVIMUX to write out AVI files that old apps can read properly.
@@ -1840,11 +1900,53 @@ BOOL BuildPreviewGraph()
 
     if( gcap.fMPEG2 )
     {
+        // First try the MPEG2/stream pin that hardware MPEG2 encoders expose.
         hr = gcap.pBuilder->RenderStream(&PIN_CATEGORY_PREVIEW,
                                          &MEDIATYPE_Stream, gcap.pVCap, NULL, NULL);
         if( FAILED( hr ) )
         {
-            ErrMsg(TEXT("Cannot build MPEG2 preview graph!"));
+            // Most standard cameras (USB, webcam) don't have a MEDIATYPE_Stream
+            // preview pin.  Fall back to the ordinary video preview pin so that
+            // the MPEG2 capture-graph path still produces a live preview window.
+            hr = gcap.pBuilder->RenderStream(&PIN_CATEGORY_PREVIEW,
+                                             &MEDIATYPE_Video, gcap.pVCap, NULL, NULL);
+            if( hr == VFW_S_NOPREVIEWPIN )
+            {
+                gcap.fPreviewFaked = TRUE;  // smart-tee faked the preview pin
+            }
+            else if( FAILED( hr ) )
+            {
+                // This device does not have a hardware MPEG2 encoder.
+                // MPEG2 mode requires a capture card with a built-in MPEG2
+                // encoder (e.g. Hauppauge WinTV).  USB webcams and most
+                // integrated cameras do not support it.
+                // Fall back gracefully: disable MPEG2 and continue with
+                // standard preview so the application remains usable.
+                ErrMsg(TEXT("Cannot build MPEG2 preview graph!\n\n")
+                       TEXT("This device does not support hardware MPEG2 encoding.\n")
+                       TEXT("MPEG2 mode has been turned off automatically.\n")
+                       TEXT("Use the Capture menu to record in AVI or WMV format instead."));
+                gcap.fMPEG2 = FALSE;
+                // Try a normal video preview as fallback
+                hr = gcap.pBuilder->RenderStream(&PIN_CATEGORY_PREVIEW,
+                                                 &MEDIATYPE_Interleaved,
+                                                 gcap.pVCap, NULL, NULL);
+                if( hr == VFW_S_NOPREVIEWPIN )
+                    gcap.fPreviewFaked = TRUE;
+                else if( FAILED(hr) )
+                {
+                    hr = gcap.pBuilder->RenderStream(&PIN_CATEGORY_PREVIEW,
+                                                     &MEDIATYPE_Video,
+                                                     gcap.pVCap, NULL, NULL);
+                    if( hr == VFW_S_NOPREVIEWPIN )
+                        gcap.fPreviewFaked = TRUE;
+                    else if( FAILED(hr) )
+                    {
+                        gcap.fPreviewGraphBuilt = FALSE;
+                        return FALSE;
+                    }
+                }
+            }
         }
 
     }
@@ -3270,6 +3372,20 @@ LONG PASCAL AppCommand(HWND hwnd, unsigned msg, WPARAM wParam, LPARAM lParam)
         // Toggle WMV/ASF output format (smaller files than AVI)
         case MENU_WMV:
             gcap.fUseWMV = !gcap.fUseWMV;
+            // Auto-update the capture file extension to match the new format.
+            // This prevents a mismatch where the graph writes WMV into a .avi file.
+            if(gcap.wszCaptureFile[0] != 0)
+            {
+                WCHAR *pExt = wcsrchr(gcap.wszCaptureFile, L'.');
+                if(pExt != NULL)
+                {
+                    if(gcap.fUseWMV)
+                        StringCchCopyW(pExt, 5, L".wmv");
+                    else
+                        StringCchCopyW(pExt, 5, L".avi");
+                    SetAppCaption();
+                }
+            }
             // No need to rebuild graph now; takes effect on next capture
             break;
 
@@ -4009,8 +4125,17 @@ BOOL SetCaptureFile(HWND hWnd)
     {
         // We have a capture file name
 
-        // If this is a new file, then invite the user to
-        // allocate some space
+        // Ensure the file extension matches the selected output format.
+        // This prevents writing WMV data into a .avi container (or vice versa).
+        {
+            WCHAR *pExt = wcsrchr(gcap.wszCaptureFile, L'.');
+            if(pExt)
+            {
+                const WCHAR *pExpected = gcap.fUseWMV ? L".wmv" : L".avi";
+                if(_wcsicmp(pExt, pExpected) != 0)
+                    StringCchCopyW(pExt, 5, pExpected);
+            }
+        }
 		if (GetFileAttributes(gcap.wszCaptureFile) == INVALID_FILE_ATTRIBUTES)
         {
             // bring up dialog, and set new file size
