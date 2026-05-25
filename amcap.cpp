@@ -4241,12 +4241,13 @@ BOOL OpenFileDialog(HWND hWnd, LPTSTR pszName, DWORD cchName)
     ZeroMemory(&ofn, sizeof(OPENFILENAME)) ;
     ofn.lStructSize   = sizeof(OPENFILENAME) ;
     ofn.hwndOwner     = hWnd ;
-    // Show the right file type filter based on the current output format
-    if (gcap.fUseWMV)
-        ofn.lpstrFilter = TEXT("Windows Media Video\0*.wmv\0All Files\0*.*\0\0");
-    else
-        ofn.lpstrFilter = TEXT("Microsoft AVI\0*.avi\0All Files\0*.*\0\0");
-    ofn.nFilterIndex  = 0 ;
+    // Show BOTH formats so the user can pick AVI or WMV at save time.
+    // Filter index 1 = AVI, Filter index 2 = WMV.
+    // Pre-select whichever matches the current setting.
+    ofn.lpstrFilter   = TEXT("Microsoft AVI (smaller w/ MJPEG)\0*.avi\0")
+                        TEXT("Windows Media Video (smallest)\0*.wmv\0")
+                        TEXT("All Files\0*.*\0\0");
+    ofn.nFilterIndex  = gcap.fUseWMV ? 2 : 1;  // pre-select current format
     ofn.lpstrFile     = szFileName;
     ofn.nMaxFile      = sizeof(szFileName) ;
     ofn.lpstrFileTitle = NULL;
@@ -4259,6 +4260,11 @@ BOOL OpenFileDialog(HWND hWnd, LPTSTR pszName, DWORD cchName)
     {
         // We have a capture file name
         StringCchCopy(pszName, cchName, szFileName);
+
+        // Update fUseWMV based on which filter the user selected:
+        // index 1 = AVI, index 2 = WMV. This is the format choice at save time.
+        gcap.fUseWMV = (ofn.nFilterIndex == 2) ? TRUE : FALSE;
+
         return TRUE;
     }
     else
@@ -4275,7 +4281,9 @@ BOOL SetCaptureFile(HWND hWnd)
 {
     if(OpenFileDialog(hWnd, gcap.wszCaptureFile, _MAX_PATH))
     {
-        // We have a capture file name
+        // We have a capture file name.
+        // fUseWMV was already updated inside OpenFileDialog based on
+        // the filter the user chose (AVI=1, WMV=2).
 
         // Ensure the file extension matches the selected output format.
         // This prevents writing WMV data into a .avi container (or vice versa).
@@ -4924,3 +4932,4 @@ void OnClose()
             DeleteMediaType(pmtSave);
         }
     }
+}
