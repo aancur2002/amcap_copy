@@ -1,4 +1,5 @@
 name: Compile Custom AMCap KVM Client
+
 on:
   push:
     branches: [ main, master ]
@@ -8,56 +9,180 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
+    # -------------------------------------------------------------------------
+    # 1. Checkout your repository
+    # -------------------------------------------------------------------------
     - name: Checkout Custom AMCap Repository
       uses: actions/checkout@v4
 
-    - name: Fetch Microsoft DirectShow BaseClasses
+    # -------------------------------------------------------------------------
+    # 2. Fetch only the two DirectShow folders we need from Microsoft's repo.
+    #    sparse-checkout avoids downloading the entire 2 GB windows-classic-samples.
+    # -------------------------------------------------------------------------
+    - name: Fetch Microsoft DirectShow BaseClasses and Common
       run: |
         git clone --depth 1 --filter=blob:none --sparse https://github.com/microsoft/Windows-classic-samples.git
         cd Windows-classic-samples
         git sparse-checkout set Samples/Win7Samples/multimedia/directshow/baseclasses Samples/Win7Samples/multimedia/directshow/common
       shell: cmd
 
-    - name: Setup MSVC Compiler Environment
+    # -------------------------------------------------------------------------
+    # 3. Set up the MSVC x64 compiler environment.
+    #    This action sets PATH, INCLUDE, LIB, LIBPATH correctly for cl.exe/link.exe.
+    # -------------------------------------------------------------------------
+    - name: Setup MSVC x64 Compiler Environment
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
 
-    - name: Compile DirectShow BaseClasses Engine
+    # -------------------------------------------------------------------------
+    # 4. Build DirectShow BaseClasses as a static Release library.
+    #
+    #    FIXES vs original YML:
+    #    a) Use NDEBUG (Release) not _DEBUG -- the original used /D_DEBUG /DDEBUG
+    #       which produced a debug-assertion-heavy binary, and is inconsistent with
+    #       what amcap.exe expects from a Release library.
+    #    b) Use /MT (static CRT) to match what the .vcproj specifies for Release.
+    #       Mixing /MD and /MT between lib and exe causes duplicate CRT symbol errors.
+    #    c) dllentry.cpp and dllsetup.cpp are COM server boilerplate files designed
+    #       for DLL builds.  Compiling them into a static lib causes unresolved
+    #       g_Templates / g_cTemplates externals at link time because amcap.exe
+    #       never defines those COM factory tables.  EXCLUDE them.
+    #    d) Output lib name is Strmbase.lib (Release convention), NOT STRMBASE.lib.
+    #       The name is case-insensitive on Windows, but using the canonical name
+    #       avoids confusion.
+    # -------------------------------------------------------------------------
+    - name: Compile DirectShow BaseClasses (Release x64 static lib)
       run: |
         pushd Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
-        cl /nologo /O2 /c /D_AMD64_ /D_WIN32 /DUNICODE /D_UNICODE /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t /I. *.cpp
-        lib /nologo /OUT:STRMBASE.lib *.obj
-        echo STRMBASE.lib built at:
+
+        :: Compile all baseclasses cpp files EXCEPT dllentry.cpp and dllsetup.cpp.
+        :: Those two are COM-server boilerplate for DLL builds; they reference
+        :: g_Templates / g_cTemplates which amcap.exe does not define.
+        cl /nologo /c /O2 /MT /W3 /EHsc /Zc:wchar_t /GS ^
+           /DWIN32 /DNDEBUG /D_LIB /DUNICODE /D_UNICODE ^
+           /I. ^
+           amextra.cpp amfilter.cpp amvideo.cpp arithutil.cpp ^
+           combase.cpp cprop.cpp ctlutil.cpp ddmm.cpp ^
+           mtype.cpp outputq.cpp perflog.cpp pstream.cpp ^
+           pullpin.cpp refclock.cpp renbase.cpp schedule.cpp ^
+           seekpt.cpp source.cpp strmctl.cpp sysclock.cpp ^
+           transfrm.cpp transip.cpp videoctl.cpp vtrans.cpp ^
+           winctrl.cpp winutil.cpp wxdebug.cpp wxlist.cpp wxutil.cpp
+        if errorlevel 1 (
+          echo [ERROR] BaseClasses compile failed
+          exit /b 1
+        )
+
+        lib /nologo /OUT:Strmbase.lib *.obj
+        if errorlevel 1 (
+          echo [ERROR] BaseClasses lib creation failed
+          exit /b 1
+        )
+
+        echo [OK] Strmbase.lib built in:
         cd
+        dir Strmbase.lib
+        popd
       shell: cmd
 
+    # -------------------------------------------------------------------------
+    # 5. Compile the AMCap executable.
+    #
+    #    FIXES vs original YML:
+    #    a) BASE_PATH and COMMON_PATH appended to INCLUDE / LIB using correct
+    #       cmd syntax.  The original set INCLUDE=%INCLUDE%;path is correct,
+    #       but must stay in the SAME run: block as cl.exe (same cmd process).
+    #       Confirmed: all in one block -- OK.
+    #    b) Use /MT /DNDEBUG to match the baseclasses lib above.
+    #       The original mixed /D_DEBUG/DDEBUG with a Release build.
+    #    c) Add stdafx.cpp to the source list.  It's a translation unit listed
+    #       in amcap.vcproj; omitting it causes "already defined" errors from
+    #       headers that have implementation pulled in via #include in only one TU.
+    #    d) Link with Strmbase.lib (our Release lib), NOT Strmbasd.lib.
+    #    e) Add kernel32.lib explicitly -- safe to include, linker deduplicates.
+    #    f) Add shell32.lib -- needed by some DirectShow helpers.
+    #    g) /DWIN32 not /D_WIN32 -- the baseclasses headers use WIN32 guard.
+    #       Both /DWIN32 and /D_WIN32 are set so either convention is covered.
+    #    h) rc.exe and cl.exe both need the baseclasses + common include paths
+    #       so DShowUtil.h (from common) and streams.h (from baseclasses) resolve.
+    #    i) Add /LTCG (Link Time Code Generation) for smaller/faster Release binary.
+    #    j) Add /PDB:amcap.pdb so crash reports are debuggable without symbol server.
+    # -------------------------------------------------------------------------
     - name: Compile Custom AMCap Executable
       run: |
         set BASE_PATH=%GITHUB_WORKSPACE%\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\baseclasses
         set COMMON_PATH=%GITHUB_WORKSPACE%\Windows-classic-samples\Samples\Win7Samples\multimedia\directshow\common
+
+        :: Extend the compiler and linker search paths
         set INCLUDE=%INCLUDE%;%BASE_PATH%;%COMMON_PATH%
         set LIB=%LIB%;%BASE_PATH%
 
-        echo === DEBUG ===
-        echo BASE_PATH=%BASE_PATH%
-        echo LIB=%LIB%
-        dir "%BASE_PATH%\STRMBASE.lib"
-        echo =============
+        :: ── Sanity check ────────────────────────────────────────────────────
+        echo === Build environment ===
+        echo BASE_PATH  = %BASE_PATH%
+        echo COMMON_PATH= %COMMON_PATH%
+        dir "%BASE_PATH%\Strmbase.lib"
+        echo =========================
 
-        rc /fo amcap.res /d UNICODE /d _UNICODE /I"%BASE_PATH%" amcap.rc
+        :: ── Compile resource file ───────────────────────────────────────────
+        :: rc.exe needs INCLUDE set (done above) to find windows.h and amcap.h
+        rc /nologo /fo amcap.res /d UNICODE /d _UNICODE amcap.rc
+        if errorlevel 1 (
+          echo [ERROR] Resource compile failed
+          exit /b 1
+        )
 
-        cl /nologo /O2 /DUNICODE /D_UNICODE /D_AMD64_ /D_WIN32 /D_DEBUG /DDEBUG /EHsc /Zc:wchar_t ^
-          amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp amcap.res ^
-          /link "%BASE_PATH%\STRMBASE.lib" ^
-          user32.lib gdi32.lib ole32.lib oleaut32.lib strmiids.lib uuid.lib ^
-          vfw32.lib winmm.lib comctl32.lib msacm32.lib comdlg32.lib advapi32.lib ^
-          /OUT:amcap.exe /SUBSYSTEM:WINDOWS
+        :: ── Compile and link amcap.exe ──────────────────────────────────────
+        ::
+        :: Source files (must include stdafx.cpp -- it's a separate TU in vcproj)
+        :: Compiler flags mirror the Release|x64 vcproj configuration:
+        ::   /O2        optimise for speed
+        ::   /MT        static CRT (matches baseclasses lib above)
+        ::   /W3        warning level 3
+        ::   /EHsc      C++ exceptions
+        ::   /Zc:wchar_t wchar_t is a native type
+        ::   /GS        buffer security check
+        ::   /DNDEBUG   Release build (no assertions)
+        ::   /DUNICODE /D_UNICODE  Unicode character set
+        ::   /DWIN32 /D_WIN32     Windows platform guards
+        ::
+        cl /nologo /O2 /MT /W3 /EHsc /Zc:wchar_t /GS ^
+           /DWIN32 /D_WIN32 /DNDEBUG /DUNICODE /D_UNICODE ^
+           /I"%BASE_PATH%" /I"%COMMON_PATH%" ^
+           amcap.cpp status.cpp crossbar.cpp SampleCGB.cpp stdafx.cpp ^
+           amcap.res ^
+           /link ^
+           "%BASE_PATH%\Strmbase.lib" ^
+           kernel32.lib user32.lib gdi32.lib shell32.lib ^
+           ole32.lib oleaut32.lib strmiids.lib uuid.lib ^
+           vfw32.lib winmm.lib comctl32.lib msacm32.lib ^
+           comdlg32.lib advapi32.lib ^
+           /OUT:amcap.exe ^
+           /SUBSYSTEM:WINDOWS ^
+           /MACHINE:X64 ^
+           /LTCG ^
+           /PDB:amcap.pdb
+        if errorlevel 1 (
+          echo [ERROR] AMCap compile/link failed
+          exit /b 1
+        )
+
+        echo [OK] amcap.exe built successfully
+        dir amcap.exe
       shell: cmd
 
+    # -------------------------------------------------------------------------
+    # 6. Upload the finished binary and PDB as build artifacts.
+    #    PDB is included so crash reports can be symbolicated.
+    # -------------------------------------------------------------------------
     - name: Upload Production Binary
       uses: actions/upload-artifact@v4
       with:
         name: amcap-custom-kvm-client
-        path: amcap.exe
+        path: |
+          amcap.exe
+          amcap.pdb
+        if-no-files-found: error
