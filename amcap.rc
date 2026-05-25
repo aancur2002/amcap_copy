@@ -41,6 +41,7 @@ BEGIN
         MENUITEM SEPARATOR
             MENUITEM "&MPEG2"               , MENU_MPEG2
             MENUITEM "&WMV Output (smaller files)" , MENU_WMV
+            MENUITEM "&MJPEG Compression (smaller AVI)" , MENU_MJPEG
             MENUITEM SEPARATOR
             MENUITEM "&Audio Format..."     , MENU_AUDIOFORMAT
             MENUITEM SEPARATOR
